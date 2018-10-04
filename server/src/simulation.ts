@@ -1,0 +1,5 @@
+
+const simulation = {};
+
+
+export {simulation};
