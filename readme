@@ -1,1 +1,19 @@
 game
+
+
+
+
+
+DataModel
+
+  World
+  Players
+  Items
+  Skills
+
+
+
+
+Server Simulation  [server stats]
+
+Client/Player GUI
