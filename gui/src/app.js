@@ -1,4 +1,11 @@
+import { h, render } from 'preact-cycle';
+
 window.addEventListener('load', () => {
+  render(
+    GUI, {test: 'test'},
+    document.body
+  );
+
   const screen = document.getElementById('screen');
 
   screen.addEventListener('wheel', event => {
@@ -47,6 +54,70 @@ window.addEventListener('load', () => {
       view.x = viewStart.x + move.x - event.x;
       view.y = viewStart.y + move.y - event.y;
     }
+  });
+
+  const touch = {x: undefined, y: undefined, start: {x: undefined, y: undefined}, touched: false};
+
+  screen.addEventListener('touchstart', event => {
+    touch.touched = true;
+
+    let x = 0, y = 0;
+    for (let i = 0; i < event.touches.length; i++) {
+      const {pageX, pageY} = event.touches[i];
+      x += pageX;
+      y += pageY;
+    }
+
+    x /= event.touches.length;
+    y /= event.touches.length;
+
+    touch.x = x;
+    touch.y = y;
+
+    touch.start.x = x;
+    touch.start.y = y;
+
+    event.preventDefault();
+  });
+
+  screen.addEventListener('touchend', event => {
+    if (event.touches.length === 0) {
+      touch.touched = false;
+
+      player.controls.right = false;
+      player.controls.left = false;
+      player.controls.up = false;
+      player.controls.down = false;
+    }
+
+    event.preventDefault();
+  });
+
+  screen.addEventListener('touchmove', event => {
+    let x = 0, y = 0;
+    for (let i = 0; i < event.touches.length; i++) {
+      const {pageX, pageY} = event.touches[i];
+      x += pageX;
+      y += pageY;
+    }
+
+    x /= event.touches.length;
+    y /= event.touches.length;
+
+    touch.x = x;
+    touch.y = y;
+
+    player.controls.right = false;
+    player.controls.left = false;
+    player.controls.up = false;
+    player.controls.down = false;
+
+    if (x > touch.start.x) player.controls.right = true;
+    if (x < touch.start.x) player.controls.left = true;
+    if (y > touch.start.y) player.controls.down = true;
+    if (y < touch.start.y) player.controls.up = true;
+
+    event.preventDefault();
   });
 
   document.addEventListener('keydown', ({keyCode}) => {
@@ -216,6 +287,9 @@ class Player extends Entity {
         objects.splice(i, 1);
         this.size += o.size;
 
+        this.velocity.vx += o.velocity.vx * o.size / this.size;
+        this.velocity.vy += o.velocity.vy * o.size / this.size;
+
         // zoomOut(view, 1 + o.size / this.size);
         // setViewScale(view, this.radius);
         this.maxViewScale = this.radius;
@@ -236,8 +310,8 @@ class Player extends Entity {
       const emissionAmount = Math.sqrt(Math.max(0.01 * this.size, Math.random() * this.size));
       this.size -= emissionAmount;
 
-      const vx = 10 * (Math.random() - 0.5),
-            vy = 10 * (Math.random() - 0.5);
+      const vx = 5 * (Math.random() - 0.5),
+            vy = 5 * (Math.random() - 0.5);
 
       objects.push(new Emission(emissionAmount, 
                                 x + (vx < 0 ? this.radius : -this.radius), 
@@ -245,8 +319,8 @@ class Player extends Entity {
                                 this.velocity.vx + vx, 
                                 this.velocity.vy + vy, '#00aa00'));
 
-      this.velocity.vx += dt * vx / (emissionAmount / (emissionAmount + this.size));
-      this.velocity.vx += dt * vy / (emissionAmount / (emissionAmount + this.size));
+      this.velocity.vx += -vx * (emissionAmount / (emissionAmount + this.size));
+      this.velocity.vx += -vy * (emissionAmount / (emissionAmount + this.size));
     }
 
     view.x = this.position.x;
@@ -345,3 +419,27 @@ function setView (view, width, height) {
 function setViewScale(view, scale) {
   return setView(view, scale * 160, scale * 90);
 }
+
+
+const {
+  INIT
+} = {
+  INIT (_, mutation) {
+    _.inited = true;
+    _.mutation = mutation;
+
+    console.log('init')
+
+    return _;
+  }
+};
+
+
+const INIT_GUI = ({}, {inited, mutation}) => inited ? <GUI /> : mutation(INIT)(mutation);
+
+const GUI = ({test}) => (
+  <gui>
+    gui
+    {}
+  </gui>
+);
