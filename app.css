@@ -1,1 +1,1 @@
-body{position:fixed;display:-webkit-box;display:-ms-flexbox;display:flex;height:100%;width:100%;margin:0;padding:0}#screen{-webkit-box-flex:1;-ms-flex:1 1 auto;flex:1 1 auto;background-color:#000;border:1px solid #fff}
+body,gui{position:fixed}body{display:-webkit-box;display:-ms-flexbox;display:flex;height:100%;width:100%;margin:0;padding:0}#screen{-webkit-box-flex:1;-ms-flex:1 1 auto;flex:1 1 auto;background-color:#000;border:1px solid #fff}gui{color:#fff}
