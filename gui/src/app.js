@@ -12,62 +12,90 @@ window.addEventListener('load', () => {
 
   let panning = false, move = {x: 0, y: 0}, viewStart = {x: 0, y: 0};
 
+  let mouse = {location: {x: undefined, y: undefined}, moved: false};
+
   screen.addEventListener('mousedown', event => {
     panning = true;
+    mouse.moved = false;
     viewStart.x = view.x;
     viewStart.y = view.y;
     move.x = event.x;
     move.y = event.y;
+    mouse.location.x = event.x;
+    mouse.location.y = event.y;
   });
 
   screen.addEventListener('mouseup', event => {
     panning = false;
+    mouse.moved = false;
+    mouse.location.x = event.x;
+    mouse.location.y = event.y;
+    if (!mouse.moved) {
+      console.log('new dispenser');
+      // const x = view.x
+      const x = view.x - ((event.x / event.target.clientWidth) - 0.5) * view.width;
+      const y = view.y - ((event.y / event.target.clientHeight) - 0.5) * view.height;
+      objects.push(new Dispenser(Math.random() * 5000, x, y));
+    }
   });
 
   screen.addEventListener('mousemove', event => {
+    mouse.moved = true;
+    mouse.location.x = event.x;
+    mouse.location.y = event.y;
     if (panning) {
       view.x = viewStart.x + move.x - event.x;
       view.y = viewStart.y + move.y - event.y;
     }
   });
 
-  document.addEventListener('keydown', event => {
-    console.log(event);
-    if (event.keyCode === 37) {
+  document.addEventListener('keydown', ({keyCode}) => {
+    console.log(keyCode);
+    if (keyCode === 37 || keyCode === 65) {
       // left
       player.controls.left = true;
     }
-    else if (event.keyCode === 38) {
+    else if (keyCode === 38 || keyCode === 87) {
       // up
       player.controls.up = true;
     }
-    else if (event.keyCode === 39) {
+    else if (keyCode === 39 || keyCode === 68) {
       //right
       player.controls.right = true;
     }
-    else if (event.keyCode === 40) {
+    else if (keyCode === 40 || keyCode === 83) {
       //down
       player.controls.down = true;
     }
+    else if (keyCode === 0) {
+      player.controls.launch = true;
+    }
+
+    return false;
   });
 
-  document.addEventListener('keyup', event => {
-    if (event.keyCode === 37) {
+  document.addEventListener('keyup', ({keyCode}) => {
+    if (keyCode === 37 || keyCode === 65) {
       // left
       player.controls.left = false;
     }
-    else if (event.keyCode === 38) {
+    else if (keyCode === 38 || keyCode === 87) {
       // up
       player.controls.up = false;
     }
-    else if (event.keyCode === 39) {
+    else if (keyCode === 39 || keyCode === 68) {
       //right
       player.controls.right = false;
     }
-    else if (event.keyCode === 40) {
+    else if (keyCode === 40 || keyCode === 83) {
       //down
       player.controls.down = false;
     }
+    else if (keyCode === 0) {
+      player.controls.launch = true;
+    }
+
+    return false;
   });
 
   screen.width = 160;
@@ -93,7 +121,9 @@ window.addEventListener('load', () => {
   let top = 5, max = 10;
 
   const player = new Player(1, 0, -20);
-  const objects = [player, new Dispenser(100, 0, 0)];
+  const objects = [player, new Dispenser(1000, 0, 0)];
+
+  objects.player = player; // !!
 
   let start = new Date().getTime(), lastFrameTime = start;
 
@@ -119,15 +149,21 @@ window.addEventListener('load', () => {
 class Entity {
   constructor (size, x, y, color) {
     this.size = size;
-    this.radius = Math.sqrt(size);
     this.position = {x, y};
     this.color = color;
   }
 
+  set size (size) {
+    this._size = size;
+    this.radius = Math.sqrt(size) / 4;
+  }
+
+  get size () { return this._size; }
+
   draw (context, view) {
     const {position: {x, y}, radius, color} = this;
 
-    if (inView(view, x, y)) {
+    if (inView(view, x, y, radius)) {
       context.fillStyle = color;
 
       context.beginPath();
@@ -144,14 +180,22 @@ class Player extends Entity {
     this.velocity = {vx: 0, vy: 0};
     this.friction = 0.95;
 
+    this.emissionRate = 0.025;
+
     this.controls = {left: false, right: false, up: false, down: false};
   }
 
   tick (dt, objects, view) {
-    if (this.controls.left) this.velocity.vx += -1;
-    if (this.controls.right) this.velocity.vx += 1;
-    if (this.controls.up) this.velocity.vy += -1;
-    if (this.controls.down) this.velocity.vy += 1;
+    if (this.controls.left) this.velocity.vx += -1 * Math.sqrt(this.radius);
+    if (this.controls.right) this.velocity.vx += 1 * Math.sqrt(this.radius);
+    if (this.controls.up) this.velocity.vy += -1 * Math.sqrt(this.radius);
+    if (this.controls.down) this.velocity.vy += 1 * Math.sqrt(this.radius);
+
+    if (this.controls.launch) {
+      
+
+      this.controls.launch = false;
+    }
 
     this.position.x += this.velocity.vx * dt;
     this.position.y += this.velocity.vy * dt;
@@ -159,22 +203,50 @@ class Player extends Entity {
     this.velocity.vx *= 1 - (-this.friction * dt);
     this.velocity.vy *= 1 - (-this.friction * dt);
 
-    for (let i = 0; i < objects.length; i++) {
+    for (let i = objects.length - 1; i >= 0; i--) {
       const o = objects[i];
       if (o === this || o instanceof Dispenser) continue;
 
-      const dx = this.position.x - o.position.x,
-            dy = this.position.y - o.position.y;
+      const dx = o.position.x - this.position.x,
+            dy = o.position.y - this.position.y,
+            d = Math.sqrt(dx * dx + dy * dy),
+            tr = this.radius + o.radius;
 
-      if (Math.sqrt(dx * dx + dy * dy) < (this.radius + o.radius)) {
+      if (d < tr) {
         objects.splice(i, 1);
         this.size += o.size;
-        this.radius = Math.sqrt(this.size);
 
-        zoomOut(view, 1 + o.size / this.size);
-
-        break;
+        // zoomOut(view, 1 + o.size / this.size);
+        // setViewScale(view, this.radius);
+        this.maxViewScale = this.radius;
       }
+      else {
+        const f = tr / d;
+        o.velocity.vx -= dt * dx * f;
+        o.velocity.vy -= dt * dy * f;
+      }
+    }
+
+    const {position: {x, y}, color} = this;
+
+    if (Math.random() < this.emissionRate) {
+      // objects.push(new Dispenser(1 + Math.random() * 10, 
+      //                            this.position.x + (Math.random() * 3 - 1.5), 
+      //                            this.position.y + (Math.random() * 3 - 1.5)));
+      const emissionAmount = Math.sqrt(Math.max(0.01 * this.size, Math.random() * this.size));
+      this.size -= emissionAmount;
+
+      const vx = 10 * (Math.random() - 0.5),
+            vy = 10 * (Math.random() - 0.5);
+
+      objects.push(new Emission(emissionAmount, 
+                                x + (vx < 0 ? this.radius : -this.radius), 
+                                y + (vy < 0 ? this.radius : -this.radius), 
+                                this.velocity.vx + vx, 
+                                this.velocity.vy + vy, '#00aa00'));
+
+      this.velocity.vx += dt * vx / (emissionAmount / (emissionAmount + this.size));
+      this.velocity.vx += dt * vy / (emissionAmount / (emissionAmount + this.size));
     }
 
     view.x = this.position.x;
@@ -183,23 +255,23 @@ class Player extends Entity {
 }
 
 class Dispenser extends Entity {
-  constructor (size, x, y) {
-    super(size, x, y, '#ffffff');
+  constructor (size, x, y, emissionRate = Math.random() / 10) {
+    super(size, x, y, `rgba(255, 255, 255, ${emissionRate})`);
+    this.emissionRate = emissionRate;
   }
 
   tick (dt, objects) {
     const {position: {x, y}, color} = this;
 
-    if (Math.random() < 0.01) {
+    if (Math.random() < this.emissionRate) {
       // objects.push(new Dispenser(1 + Math.random() * 10, 
       //                            this.position.x + (Math.random() * 3 - 1.5), 
       //                            this.position.y + (Math.random() * 3 - 1.5)));
-      const emissionAmount = Math.sqrt(Math.random() * this.size);
+      const emissionAmount = Math.sqrt(Math.random() * this.radius);
       this.size -= emissionAmount;
-      this.radius = Math.sqrt(this.size);
 
-      const vx = 5 * (Math.random() - 0.5),
-            vy = 5 * (Math.random() - 0.5);
+      const vx = 5 * (Math.random() - 0.5) / this.emissionRate,
+            vy = 5 * (Math.random() - 0.5) / this.emissionRate;
 
       objects.push(new Emission(emissionAmount, 
                                 x + (vx < 0 ? this.radius : -this.radius), 
@@ -222,6 +294,7 @@ class Emission extends Entity {
   constructor (size, x, y, vx, vy, color) {
     super(size, x, y, color);
     this.velocity = {vx, vy};
+    this.removeCount = size * 100;
   }
 
   tick (dt, objects) {
@@ -230,14 +303,24 @@ class Emission extends Entity {
 
     this.velocity.vx += (Math.random() - 0.5) * dt;
     this.velocity.vy += (Math.random() - 0.5) * dt;
+
+    if (--this.removeCount <= 0) {
+      for (let i = 0; i < objects.length; i++) {
+        if (objects[i] === this) {
+          objects.splice(i, 1);
+          objects.player.size += this.size;
+          break;
+        }
+      }
+    }
   }
 }
 
-function inView (view, x, y) {
+function inView (view, x, y, radius) {
   const {halfWidth, halfHeight} = view;
 
-  return (view.x - halfWidth)  < x && (view.x + halfWidth)  > x &&
-         (view.y - halfHeight) < y && (view.y + halfHeight) > y;
+  return (view.x - halfWidth - radius)  < x && (view.x + halfWidth + radius)  > x &&
+         (view.y - halfHeight - radius) < y && (view.y + halfHeight + radius) > y;
 }
 
 function zoomOut (view, amount = 1.5) {
@@ -249,10 +332,16 @@ function zoomIn (view) {
 }
 
 function setView (view, width, height) {
+  if (width > 10000 || height > 10000) return;
+
   view.width = width;
   view.height = height;
   view.halfWidth = width / 2;
   view.halfHeight = height / 2;
   view.screen.width = width;
   view.screen.height = height;
+}
+
+function setViewScale(view, scale) {
+  return setView(view, scale * 160, scale * 90);
 }
