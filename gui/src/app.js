@@ -1,8 +1,11 @@
 import { h, render } from 'preact-cycle';
+import { create } from 'random-seed';
+
+const Rand = create(1234);
 
 window.addEventListener('load', () => {
   render(
-    GUI, {test: 'test'},
+    INIT_GUI, {},
     document.body
   );
 
@@ -42,7 +45,7 @@ window.addEventListener('load', () => {
       // const x = view.x
       const x = view.x - ((event.x / event.target.clientWidth) - 0.5) * view.width;
       const y = view.y - ((event.y / event.target.clientHeight) - 0.5) * view.height;
-      objects.push(new Dispenser(Math.random() * 5000, x, y));
+      simulation.objects.push(new Dispenser(Rand.random() * 5000, x, y));
     }
   });
 
@@ -138,6 +141,9 @@ window.addEventListener('load', () => {
       //down
       player.controls.down = true;
     }
+    else if (keyCode === 32) {
+      player.controls.dropBarricade = true;
+    }
     else if (keyCode === 0) {
       player.controls.launch = true;
     }
@@ -192,30 +198,72 @@ window.addEventListener('load', () => {
   let top = 5, max = 10;
 
   const player = new Player(1, 0, -20);
-  const objects = [player, new Dispenser(1000, 0, 0)];
+  const simulation = new Simulation (30, view, [
+    player, 
+    new Dispenser(1000, 0, 0),
+    new Dispenser(2000, 20, 0),
+    new Dispenser(1500, -20, 0)
+  ]);
 
-  objects.player = player; // !!
+  simulation.objects.player = player; // !!
 
   let start = new Date().getTime(), lastFrameTime = start;
+
+  simulation.start();
 
   animate();
 
   function animate() {
     const time = new Date().getTime();
 
-    const dt = (lastFrameTime - time) / 1000;
+    simulation.runTo(time);
+
+    // const dt = (lastFrameTime - time) / 1000;
 
     context.clearRect(0, 0, screen.width, screen.height);
 
-    for (let i = 0; i < objects.length; i++) objects[i].tick(dt, objects, view);
+    // for (let i = 0; i < objects.length; i++) objects[i].tick(dt, objects, view);
 
-    for (let i = 0; i < objects.length; i++) objects[i].draw(context, view);
+    for (let i = 0; i < simulation.objects.length; i++) simulation.objects[i].draw(context, view);
 
     lastFrameTime = time;
     
     requestAnimationFrame(animate);
   }
 });
+
+class Simulation {
+  constructor (ticksPerSecond, view, objects = []) {
+    this.ticksPerSecond = ticksPerSecond;
+    this.dt = ticksPerSecond / 1000;
+    this._tick = 0;
+    this.objects = objects;
+    this.view = view;
+  }
+
+  start () {
+    this.startTime = new Date().getTime();
+  }
+
+  runTo (time) {
+    const duration = time - this.startTime;
+
+    const currentTick = Math.floor(duration / 1000 * this.ticksPerSecond),
+          ticksToRun = currentTick - this._tick;
+
+    for (let i = 0; i < ticksToRun; i++) {
+      this.tick();
+    }
+  }
+
+  tick () {
+    for (let i = 0; i < this.objects.length; i++) {
+      this.objects[i].tick(this.dt, this.objects, this.view);
+    }
+
+    this._tick++;
+  }
+}
 
 class Entity {
   constructor (size, x, y, color) {
@@ -231,6 +279,8 @@ class Entity {
 
   get size () { return this._size; }
 
+  tick () { }
+
   draw (context, view) {
     const {position: {x, y}, radius, color} = this;
 
@@ -240,6 +290,23 @@ class Entity {
       context.beginPath();
       context.arc(view.halfWidth + view.x - x, view.halfHeight + view.y - y, radius, 0, 2 * Math.PI);
       context.fill();
+    }
+  }
+}
+
+class Barricade extends Entity {
+  constructor (size, x, y) {
+    super(size, x, y, '#654321');
+  }
+
+  draw (context, view) {
+    if (inView(view, this.position.x, this.position.y, this.radius)) {
+      context.fillStyle = this.color;
+
+      const x = this.position.x,
+            y = this.position.y;
+      
+      context.fillRect(view.halfWidth + view.x - x, view.halfHeight + view.y - y, this.radius, this.radius);
     }
   }
 }
@@ -256,6 +323,14 @@ class Player extends Entity {
     this.controls = {left: false, right: false, up: false, down: false};
   }
 
+  set size (size) {
+    super.size = size;
+    // console.log(size);
+    if (CONTROL && size) CONTROL.setSize(size);
+  }
+
+  get size () { return super.size; }
+
   tick (dt, objects, view) {
     if (this.controls.left) this.velocity.vx += -1 * Math.sqrt(this.radius);
     if (this.controls.right) this.velocity.vx += 1 * Math.sqrt(this.radius);
@@ -268,15 +343,27 @@ class Player extends Entity {
       this.controls.launch = false;
     }
 
+    if (this.controls.dropBarricade) {
+      const barricadeSize = 0.1 * this.size;
+
+      this.size -= barricadeSize;
+
+      objects.push(new Barricade(barricadeSize, this.position.x, this.position.y));
+
+      this.controls.dropBarricade = false;
+    }
+
     this.position.x += this.velocity.vx * dt;
     this.position.y += this.velocity.vy * dt;
 
     this.velocity.vx *= 1 - (-this.friction * dt);
     this.velocity.vy *= 1 - (-this.friction * dt);
 
+    if (CONTROL.setVelocity) CONTROL.setVelocity(this.velocity.vx, this.velocity.vy);
+
     for (let i = objects.length - 1; i >= 0; i--) {
       const o = objects[i];
-      if (o === this || o instanceof Dispenser) continue;
+      if (o === this || o instanceof Dispenser || o instanceof Barricade) continue;
 
       const dx = o.position.x - this.position.x,
             dy = o.position.y - this.position.y,
@@ -286,7 +373,7 @@ class Player extends Entity {
       if (d < tr) {
         objects.splice(i, 1);
         this.size += o.size;
-
+console.log('collide');
         this.velocity.vx += o.velocity.vx * o.size / this.size;
         this.velocity.vy += o.velocity.vy * o.size / this.size;
 
@@ -303,15 +390,15 @@ class Player extends Entity {
 
     const {position: {x, y}, color} = this;
 
-    if (Math.random() < this.emissionRate) {
-      // objects.push(new Dispenser(1 + Math.random() * 10, 
-      //                            this.position.x + (Math.random() * 3 - 1.5), 
-      //                            this.position.y + (Math.random() * 3 - 1.5)));
-      const emissionAmount = Math.sqrt(Math.max(0.01 * this.size, Math.random() * this.size));
+    if (Rand.random() < this.emissionRate) {
+      // objects.push(new Dispenser(1 + Rand.random() * 10, 
+      //                            this.position.x + (Rand.random() * 3 - 1.5), 
+      //                            this.position.y + (Rand.random() * 3 - 1.5)));
+      const emissionAmount = Math.sqrt(Math.max(0.01 * this.size, Rand.random() * this.size));
       this.size -= emissionAmount;
 
-      const vx = 5 * (Math.random() - 0.5),
-            vy = 5 * (Math.random() - 0.5);
+      const vx = 5 * (Rand.random() - 0.5),
+            vy = 5 * (Rand.random() - 0.5);
 
       objects.push(new Emission(emissionAmount, 
                                 x + (vx < 0 ? this.radius : -this.radius), 
@@ -329,23 +416,23 @@ class Player extends Entity {
 }
 
 class Dispenser extends Entity {
-  constructor (size, x, y, emissionRate = Math.random() / 10) {
-    super(size, x, y, `rgba(255, 255, 255, ${emissionRate})`);
+  constructor (size, x, y, emissionRate = Rand.random() / 10) {
+    super(size, x, y, `rgba(255, 255, 255, ${0.25 + emissionRate})`);
     this.emissionRate = emissionRate;
   }
 
   tick (dt, objects) {
     const {position: {x, y}, color} = this;
 
-    if (Math.random() < this.emissionRate) {
-      // objects.push(new Dispenser(1 + Math.random() * 10, 
-      //                            this.position.x + (Math.random() * 3 - 1.5), 
-      //                            this.position.y + (Math.random() * 3 - 1.5)));
-      const emissionAmount = Math.sqrt(Math.random() * this.radius);
+    if (Rand.random() < this.emissionRate) {
+      // objects.push(new Dispenser(1 + Rand.random() * 10, 
+      //                            this.position.x + (Rand.random() * 3 - 1.5), 
+      //                            this.position.y + (Rand.random() * 3 - 1.5)));
+      const emissionAmount = Math.sqrt(Rand.random() * this.radius);
       this.size -= emissionAmount;
 
-      const vx = 5 * (Math.random() - 0.5) / this.emissionRate,
-            vy = 5 * (Math.random() - 0.5) / this.emissionRate;
+      const vx = 5 * (Rand.random() - 0.5) / this.emissionRate,
+            vy = 5 * (Rand.random() - 0.5) / this.emissionRate;
 
       objects.push(new Emission(emissionAmount, 
                                 x + (vx < 0 ? this.radius : -this.radius), 
@@ -375,8 +462,8 @@ class Emission extends Entity {
     this.position.x += this.velocity.vx * dt;
     this.position.y += this.velocity.vy * dt;
 
-    this.velocity.vx += (Math.random() - 0.5) * dt;
-    this.velocity.vy += (Math.random() - 0.5) * dt;
+    this.velocity.vx += (Rand.random() - 0.5) * dt;
+    this.velocity.vy += (Rand.random() - 0.5) * dt;
 
     if (--this.removeCount <= 0) {
       for (let i = 0; i < objects.length; i++) {
@@ -420,6 +507,7 @@ function setViewScale(view, scale) {
   return setView(view, scale * 160, scale * 90);
 }
 
+const CONTROL = {};
 
 const {
   INIT
@@ -427,6 +515,11 @@ const {
   INIT (_, mutation) {
     _.inited = true;
     _.mutation = mutation;
+
+    _.size = 0;
+
+    CONTROL.setSize = size => mutation((_, size) => (_.size = size, _))(size); 
+    CONTROL.setVelocity = (x, y) => mutation((_, x, y) => (_.velocity = {x, y}, _))(x, y);
 
     console.log('init')
 
@@ -437,9 +530,9 @@ const {
 
 const INIT_GUI = ({}, {inited, mutation}) => inited ? <GUI /> : mutation(INIT)(mutation);
 
-const GUI = ({test}) => (
+const GUI = ({}, {size = 0, velocity}) => (
   <gui>
-    gui
-    {}
+    {size.toFixed(2)}
+    {velocity ? JSON.stringify(velocity) : undefined}
   </gui>
 );
